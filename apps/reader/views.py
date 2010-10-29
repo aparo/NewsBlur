@@ -618,7 +618,7 @@ def login_as(request):
 def save_feed_chooser(request):
     from apps.feed_import.models import queue_new_feeds
     
-    approved_feeds = [int(feed_id) for feed_id in request.POST.getlist('approved_feeds')][:64]
+    approved_feeds = [int(feed_id) for feed_id in request.POST.getlist('approved_feeds')]
     activated = 0
     usersubs = UserSubscription.objects.filter(user=request.user)
     for sub in usersubs:
