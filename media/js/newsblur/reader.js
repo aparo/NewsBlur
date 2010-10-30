@@ -908,7 +908,7 @@
             };
             
             var combined_folders = combine_folders(this.$s.$feed_list);
-            NEWSBLUR.log(['Save new folder/feed order', {'combined': combined_folders}]);
+            // NEWSBLUR.log(['Save new folder/feed order', {'combined': combined_folders}]);
             this.model.save_feed_order(combined_folders);
         },
         
