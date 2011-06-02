@@ -5,7 +5,7 @@ from django.utils.encoding import force_unicode
 from django.utils import simplejson as json
 from decimal import Decimal
 from django.core import serializers
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden, Http404
 from django.core.mail import mail_admins
 from django.db.models.query import QuerySet
 import sys
@@ -87,6 +87,7 @@ def json_encode(data, *args, **kwargs):
 def json_view(func):
     def wrap(request, *a, **kw):
         response = None
+        code = 200
         try:
             response = func(request, *a, **kw)
             if isinstance(response, dict):
@@ -96,6 +97,8 @@ def json_view(func):
         except KeyboardInterrupt:
             # Allow keyboard interrupts through for debugging.
             raise
+        except Http404:
+            raise Http404
         except Exception, e:
             # Mail the admins with the error
             exc_info = sys.exc_info()
@@ -114,12 +117,16 @@ def json_view(func):
 
             response = {'result': 'error',
                         'text': unicode(e)}
+            code = 500
         
         if isinstance(response, HttpResponseForbidden):
             return response
         json = json_encode(response)
-        return HttpResponse(json, mimetype='application/json')
-    return wrap
+        return HttpResponse(json, mimetype='application/json', status=code)
+    if isinstance(func, HttpResponse):
+        return func
+    else:
+        return wrap
 
 def main():
     test = {1: True, 2: u"string", 3: 30}

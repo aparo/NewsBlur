@@ -7,60 +7,66 @@ from mongoengine import connect
 # = Directory Declaractions =
 # ===========================
 
-CURRENT_DIR = os.path.dirname(__file__)
-NEWSBLUR_DIR = CURRENT_DIR
+CURRENT_DIR   = os.path.dirname(__file__)
+NEWSBLUR_DIR  = CURRENT_DIR
 TEMPLATE_DIRS = (''.join([CURRENT_DIR, '/templates']),)
-MEDIA_ROOT = ''.join([CURRENT_DIR, '/media'])
-UTILS_ROOT = ''.join([CURRENT_DIR, '/utils'])
-LOG_FILE = ''.join([CURRENT_DIR, '/logs/newsblur.log'])
+MEDIA_ROOT    = ''.join([CURRENT_DIR, '/media'])
+UTILS_ROOT    = ''.join([CURRENT_DIR, '/utils'])
+VENDOR_ROOT   = ''.join([CURRENT_DIR, '/vendor'])
+LOG_FILE      = ''.join([CURRENT_DIR, '/logs/newsblur.log'])
+IMAGE_MASK    = ''.join([CURRENT_DIR, '/media/img/mask.png'])
 
 # ==============
 # = PYTHONPATH =
 # ==============
 
-UTILS_DIR = ''.join([CURRENT_DIR, '/utils'])
 if '/utils' not in ' '.join(sys.path):
-    sys.path.append(UTILS_DIR)
+    sys.path.append(UTILS_ROOT)
+if '/vendor' not in ' '.join(sys.path):
+    sys.path.append(VENDOR_ROOT)
 
 # ===================
 # = Global Settings =
 # ===================
 
-ADMINS = (
+ADMINS                = (
     ('Samuel Clay', 'samuel@ofbrooklyn.com'),
 )
-MANAGERS = ADMINS
+SEND_BROKEN_LINK_EMAILS = False
+MANAGERS              = ADMINS
 PAYPAL_RECEIVER_EMAIL = 'samuel@ofbrooklyn.com'
-TIME_ZONE = 'GMT'
-LANGUAGE_CODE = 'en-us'
-SITE_ID = 1
-USE_I18N = False
-LOGIN_REDIRECT_URL = '/'
-LOGIN_URL = '/reader/login'
+TIME_ZONE             = 'GMT'
+LANGUAGE_CODE         = 'en-us'
+SITE_ID               = 1
+USE_I18N              = False
+LOGIN_REDIRECT_URL    = '/'
+LOGIN_URL             = '/reader/login'
 # URL prefix for admin media -- CSS, JavaScript and images. Make sure to use a
 # trailing slash.
 # Examples: "http://foo.com/media/", "/media/".
-ADMIN_MEDIA_PREFIX = '/media/admin/'
-SECRET_KEY = '6yx-@2u@v$)-=fqm&tc8lhk3$6d68+c7gd%p$q2@o7b4o8-*fz'
+ADMIN_MEDIA_PREFIX    = '/media/admin/'
+SECRET_KEY            = '6yx-@2u@v$)-=fqm&tc8lhk3$6d68+c7gd%p$q2@o7b4o8-*fz'
+
 
 # ===============
 # = Enviornment =
 # ===============
 
-PRODUCTION = __file__.find('/home/conesus/newsblur') == 0
-STAGING = __file__.find('/home/conesus/staging') == 0
+PRODUCTION  = __file__.find('/home/conesus/newsblur') == 0
+STAGING     = __file__.find('/home/conesus/staging') == 0
 DEV_SERVER1 = __file__.find('/Users/conesus/Projects/newsblur') == 0
 DEV_SERVER2 = __file__.find('/Users/conesus/newsblur') == 0
 DEVELOPMENT = DEV_SERVER1 or DEV_SERVER2
-                
+
 # ===========================
 # = Django-specific Modules =
 # ===========================
 
 TEMPLATE_LOADERS = (
     'django.template.loaders.filesystem.Loader',
-    'django.template.loaders.app_directories.load_template_source',
+    'django.template.loaders.app_directories.Loader',
     'django.template.loaders.eggs.load_template_source',
+
 )
 TEMPLATE_CONTEXT_PROCESSORS = (
     "django.contrib.auth.context_processors.auth",
@@ -75,8 +81,72 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'apps.profile.middleware.LastSeenMiddleware',
+    'apps.profile.middleware.SQLLogToConsoleMiddleware',
     # 'debug_toolbar.middleware.DebugToolbarMiddleware',
 )
+
+# ===========
+# = Logging =
+# ===========
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[%(asctime)-12s] %(message)s', 
+            'datefmt': '%b %d %H:%M:%S'
+        },
+        'simple': {
+            'format': '%(message)s'
+        },
+    },
+    'handlers': {
+        'null': {
+            'level':'DEBUG',
+            'class':'django.utils.log.NullHandler',
+        },
+        'console':{
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose'
+        },
+        'log_file':{
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_FILE,
+            'maxBytes': '16777216', # 16megabytes
+            'formatter': 'verbose'
+        },
+        'mail_admins': {
+            'level': 'ERROR',
+            'class': 'django.utils.log.AdminEmailHandler',
+            'include_html': True,
+        }
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['mail_admins'],
+            'level': 'ERROR',
+            'propagate': True,
+        },
+        'django.db.backends': {
+            'handlers': ['null'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'newsblur': {
+            'handlers': ['console', 'log_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    'apps': { # I keep all my apps here, but you can also add them one by one
+            'handlers': ['log_file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    }
+}
 
 # =====================
 # = Media Compression =
@@ -85,7 +155,7 @@ MIDDLEWARE_CLASSES = (
 COMPRESS_JS = {
     'all': {
         'source_filenames': (
-            'js/jquery-1.4.2.js',
+            'js/jquery-1.6.js',
             'js/inflector.js',
             'js/jquery.json.js',
             'js/jquery.easing.js',
@@ -105,22 +175,30 @@ COMPRESS_JS = {
             'js/jquery.ui.draggable.js',
             'js/jquery.ui.sortable.js',
             'js/jquery.ui.slider.js',
+            'js/jquery.ui.autocomplete.js',
             'js/jquery.ui.progressbar.js',
             'js/jquery.layout.js',
             'js/jquery.tinysort.js',
             'js/jquery.fieldselection.js',
             'js/jquery.flot.js',
+            'js/jquery.tipsy.js',
             'js/underscore.js',
             'js/newsblur/assetmodel.js',
             'js/newsblur/reader.js',
+            'js/newsblur/generate_bookmarklet.js',
+            'js/newsblur/modal.js',
             'js/newsblur/reader_classifier.js',
             'js/newsblur/reader_add_feed.js',
             'js/newsblur/reader_mark_read.js',
+            'js/newsblur/reader_goodies.js',
             'js/newsblur/reader_preferences.js',
             'js/newsblur/reader_feedchooser.js',
             'js/newsblur/reader_statistics.js',
             'js/newsblur/reader_feed_exception.js',
             'js/newsblur/reader_keyboard.js',
+            'js/newsblur/reader_recommend_feed.js',
+            'js/newsblur/reader_send_email.js',
+            'js/newsblur/reader_tutorial.js',
             'js/newsblur/about.js',
             'js/newsblur/faq.js',
         ),
@@ -132,19 +210,40 @@ COMPRESS_JS = {
         ),
         'output_filename': 'js/paypal-compressed-?.js',
     },
+    'bookmarklet': {
+        'source_filenames': (
+            'js/jquery-1.5.1.min.js',
+            'js/jquery.noConflict.js',
+            'js/jquery.newsblur.js',
+            'js/jquery.tinysort.js',
+            'js/jquery.simplemodal-1.3.js',
+            'js/jquery.corners.js',
+        ),
+        'output_filename': 'js/bookmarklet-compressed-?.js',
+    },
 }
 
 COMPRESS_CSS = {
     'all': {
         'source_filenames': (
             'css/reader.css',
+            'css/modals.css',
+            'css/status.css',
             'css/jquery-ui/jquery.theme.css',
+            'css/jquery.tipsy.css',
         ),
         'output_filename': 'css/all-compressed-?.css'
     },
     'paypal': {
         'source_filenames': (
             'css/paypal_return.css',
+        ),
+        'output_filename': 'css/paypal-compressed-?.css',
+    },
+    'bookmarklet': {
+        'source_filenames': (
+            'css/reset.css',
+            'css/modals.css',
         ),
         'output_filename': 'css/paypal-compressed-?.css',
     },
@@ -158,38 +257,26 @@ COMPRESS_CSS_FILTERS = []
 # COMPRESS_YUI_BINARY = 'java -jar ' + YUI_DIR
 # COMPRESS_YUI_JS_ARGUMENTS = '--preserve-semi --nomunge --disable-optimizations'
 
-# ========================
-# = Django Debug Toolbar =
-# ========================
-
-DEBUG_TOOLBAR_PANELS = (
-    'debug_toolbar.panels.version.VersionDebugPanel',
-    'debug_toolbar.panels.timer.TimerDebugPanel',
-    'debug_toolbar.panels.settings_vars.SettingsVarsDebugPanel',
-    'debug_toolbar.panels.headers.HeaderDebugPanel',
-    'debug_toolbar.panels.request_vars.RequestVarsDebugPanel',
-    'debug_toolbar.panels.template.TemplateDebugPanel',
-    'debug_toolbar.panels.sql.SQLDebugPanel',
-    'debug_toolbar.panels.cache.CacheDebugPanel',
-    'debug_toolbar.panels.signals.SignalDebugPanel',
-    'debug_toolbar.panels.logger.LoggingPanel',
-)
-
 # ==========================
 # = Miscellaneous Settings =
 # ==========================
 
-AUTH_PROFILE_MODULE = 'newsblur.UserProfile'
+DAYS_OF_UNREAD          = 14
+SUBSCRIBER_EXPIRE       = 3
+
+AUTH_PROFILE_MODULE     = 'newsblur.UserProfile'
 TEST_DATABASE_COLLATION = 'utf8_general_ci'
-TEST_DATABASE_NAME = 'newsblur_test'
-ROOT_URLCONF = 'urls'
-INTERNAL_IPS = ('127.0.0.1',)
-LOGGING_LOG_SQL = True
-APPEND_SLASH = True
-SOUTH_TESTS_MIGRATE = False 
-SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
-TEST_RUNNER = "utils.testrunner.TestRunner"
-DAYS_OF_UNREAD = 14
+TEST_DATABASE_NAME      = 'newsblur_test'
+ROOT_URLCONF            = 'urls'
+INTERNAL_IPS            = ('127.0.0.1',)
+LOGGING_LOG_SQL         = True
+APPEND_SLASH            = True
+SOUTH_TESTS_MIGRATE     = False 
+SESSION_ENGINE          = "django.contrib.sessions.backends.cached_db"
+TEST_RUNNER             = "utils.testrunner.TestRunner"
+SESSION_COOKIE_NAME     = 'newsblur_sessionid'
+SESSION_COOKIE_AGE      = 60*60*24*365*2 # 2 years
+
 
 # ===========
 # = Logging =
@@ -216,22 +303,26 @@ INSTALLED_APPS = (
     'apps.analyzer',
     'apps.feed_import',
     'apps.profile',
-    'devserver',
+    'apps.recommendations',
+    'apps.statistics',
     'south',
-    # 'test_utils',
     'utils',
-    'utils.typogrify',
-    'utils.paypal.standard.ipn',
-    # 'debug_toolbar'
+    'vendor',
+    'vendor.typogrify',
+    'vendor.paypal.standard.ipn',
 )
 
 if not DEVELOPMENT:
     INSTALLED_APPS += (
         'gunicorn',
     )
+elif DEVELOPMENT:
+    INSTALLED_APPS += (
+        'devserver',
+    )
 
 DEVSERVER_MODULES = (
-   'devserver.modules.sql.SQLRealTimeModule',
+    # 'devserver.modules.sql.SQLRealTimeModule',
     'devserver.modules.sql.SQLSummaryModule',
     'devserver.modules.profile.ProfileSummaryModule',
 
@@ -269,21 +360,49 @@ CELERY_QUEUES = {
     },
 }
 CELERY_DEFAULT_QUEUE = "update_feeds"
-BROKER_HOST = "db01.newsblur.com"
-BROKER_PORT = 5672
-BROKER_USER = "newsblur"
-BROKER_PASSWORD = "newsblur"
-BROKER_VHOST = "newsblurvhost"
+BROKER_BACKEND       = "amqplib"
+BROKER_HOST          = "db01.newsblur.com"
+BROKER_PORT          = 5672
+BROKER_USER          = "newsblur"
+BROKER_PASSWORD      = "newsblur"
+BROKER_VHOST         = "newsblurvhost"
 
-CELERY_RESULT_BACKEND = "amqp"
+CELERY_RESULT_BACKEND       = "amqp"
+CELERYD_LOG_LEVEL           = 'ERROR'
+CELERY_IMPORTS              = ("apps.rss_feeds.tasks", )
+CELERYD_CONCURRENCY         = 4
+CELERY_IGNORE_RESULT        = True
+CELERY_ACKS_LATE            = True # Retry if task fails
+CELERYD_MAX_TASKS_PER_CHILD = 10
+# CELERYD_TASK_TIME_LIMIT   = 12 * 30
+CELERY_DISABLE_RATE_LIMITS  = True
 
-CELERYD_LOG_LEVEL = 'ERROR'
-CELERY_IMPORTS = ("apps.rss_feeds.tasks", )
-CELERYD_CONCURRENCY = 4
-CELERY_IGNORE_RESULT = True
-CELERYD_MAX_TASKS_PER_CHILD = 100
-CELERY_DISABLE_RATE_LIMITS = True
+# ====================
+# = Database Routers =
+# ====================
 
+class MasterSlaveRouter(object):
+    """A router that sets up a simple master/slave configuration"""
+
+    def db_for_read(self, model, **hints):
+        "Point all read operations to a random slave"
+        return 'slave'
+
+    def db_for_write(self, model, **hints):
+        "Point all write operations to the master"
+        return 'default'
+
+    def allow_relation(self, obj1, obj2, **hints):
+        "Allow any relation between two objects in the db pool"
+        db_list = ('slave','default')
+        if obj1._state.db in db_list and obj2._state.db in db_list:
+            return True
+        return None
+
+    def allow_syncdb(self, db, model):
+        "Explicitly put all models on all databases."
+        return True
+        
 # ==================
 # = Configurations =
 # ==================
@@ -310,4 +429,8 @@ DEBUG_TOOLBAR_CONFIG = {
 # = Mongo =
 # =========
 
-MONGODB = connect(MONGO_DB['NAME'], host=MONGO_DB['HOST'], port=MONGO_DB['PORT'])
+MONGODB = connect(MONGO_DB['NAME'], 
+                  host=MONGO_DB['HOST'], 
+                  port=MONGO_DB['PORT'], 
+                  username=MONGO_DB.get('USERNAME'), 
+                  password=MONGO_DB.get('PASSWORD'))

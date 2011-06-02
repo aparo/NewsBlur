@@ -1,327 +1,409 @@
-from fabric.api import env, run, require, sudo, settings
+from fabric.api import abort, cd, env, get, hide, hosts, local, prompt
+from fabric.api import put, require, roles, run, runs_once, settings, show, sudo, warn
+from fabric.colors import red, green, blue, cyan, magenta, white, yellow
+from boto.s3.connection import S3Connection
+from boto.s3.key import Key
+from fabric.contrib import django
+import os, sys
+
+django.settings_module('settings')
+from django.conf import settings as django_settings
 
 # =========
 # = Roles =
 # =========
 
-env.user = 'conesus'
-env.hosts = ['www.newsblur.com', 'db01.newsblur.com']
+env.user = 'sclay'
 env.roledefs ={
-    'web': ['app01.newsblur.com'],
-    'ff': ['app01.newsblur.com', 'db01.newsblur.com'],
-    'db': ['db01.newsblur.com'],
+    'app': ['app01.newsblur.com'],
+    'web': ['www.newsblur.com'],
+    'db': ['db01.newsblur.com', 'db02.newsblur.com'],
+    'task': ['task01.newsblur.com', 'task02.newsblur.com'],
 }
 
-"""
-Base configuration
-"""
-env.project_name = '$(project)'
-env.database_password = '$(db_password)'
-env.site_media_prefix = "site_media"
-env.admin_media_prefix = "admin_media"
-env.newsapps_media_prefix = "na_media"
-env.path = '/home/newsapps/sites/%(project_name)s' % env
-env.log_path = '/home/newsapps/logs/%(project_name)s' % env
-env.env_path = '%(path)s/env' % env
-env.repo_path = '%(path)s/repository' % env
-env.apache_config_path = '/home/newsapps/sites/apache/%(project_name)s' % env
-env.python = 'python2.6'
+# ================
+# = Environments =
+# ================
 
-"""
-Environments
-"""
-def production():
-    """
-    Work on production environment
-    """
-    env.settings = 'production'
-    env.hosts = ['$(production_domain)']
-    env.user = '$(production_user)'
-    env.s3_bucket = '$(production_s3)'
+def app():
+    env.roles = ['app']
+def web():
+    env.roles = ['web']
+def db():
+    env.roles = ['db']
+def task():
+    env.roles = ['task']
 
-def staging():
-    """
-    Work on staging environment
-    """
-    env.settings = 'staging'
-    env.hosts = ['$(staging_domain)'] 
-    env.user = '$(staging_user)'
-    env.s3_bucket = '$(staging_s3)'
-    
-"""
-Branches
-"""
-def stable():
-    """
-    Work on stable branch.
-    """
-    env.branch = 'stable'
+# ==========
+# = Deploy =
+# ==========
 
-def master():
-    """
-    Work on development branch.
-    """
-    env.branch = 'master'
-
-def branch(branch_name):
-    """
-    Work on any specified branch.
-    """
-    env.branch = branch_name
-    
-"""
-Commands - setup
-"""
-def setup():
-    """
-    Setup a fresh virtualenv, install everything we need, and fire up the database.
-    
-    Does NOT perform the functions of deploy().
-    """
-    require('settings', provided_by=[production, staging])
-    require('branch', provided_by=[stable, master, branch])
-    
-    setup_directories()
-    setup_virtualenv()
-    clone_repo()
-    checkout_latest()
-    destroy_database()
-    create_database()
-    load_data()
-    install_requirements()
-    install_apache_conf()
-    deploy_requirements_to_s3()
-
-def setup_directories():
-    """
-    Create directories necessary for deployment.
-    """
-    run('mkdir -p %(path)s' % env)
-    run('mkdir -p %(env_path)s' % env)
-    run ('mkdir -p %(log_path)s;' % env)
-    sudo('chgrp -R www-data %(log_path)s; chmod -R g+w %(log_path)s;' % env)
-    run('ln -s %(log_path)s %(path)s/logs' % env)
-    
-def setup_virtualenv():
-    """
-    Setup a fresh virtualenv.
-    """
-    run('virtualenv -p %(python)s --no-site-packages %(env_path)s;' % env)
-    run('source %(env_path)s/bin/activate; easy_install -U setuptools; easy_install pip;' % env)
-
-def clone_repo():
-    """
-    Do initial clone of the git repository.
-    """
-    run('git clone git@tribune.unfuddle.com:tribune/%(project_name)s.git %(repo_path)s' % env)
-
-def checkout_latest():
-    """
-    Pull the latest code on the specified branch.
-    """
-    run('cd %(repo_path)s; git checkout %(branch)s; git pull origin %(branch)s' % env)
-
-def install_requirements():
-    """
-    Install the required packages using pip.
-    """
-    run('source %(env_path)s/bin/activate; pip install -E %(env_path)s -r %(repo_path)s/requirements.txt' % env)
-
-def install_apache_conf():
-    """
-    Install the apache site config file.
-    """
-    sudo('cp %(repo_path)s/%(project_name)s/configs/%(settings)s/%(project_name)s %(apache_config_path)s' % env)
-
-def deploy_requirements_to_s3():
-    """
-    Deploy the latest newsapps and admin media to s3.
-    """
-    run('s3cmd del --recursive s3://%(s3_bucket)s/%(project_name)s/%(admin_media_prefix)s/' % env)
-    run('s3cmd -P --guess-mime-type sync %(env_path)s/src/django/django/contrib/admin/media/ s3://%(s3_bucket)s/%(project_name)s/%(site_media_prefix)s/' % env)
-    run('s3cmd del --recursive s3://%(s3_bucket)s/%(project_name)s/%(newsapps_media_prefix)s/' % env)
-    run('s3cmd -P --guess-mime-type sync %(env_path)s/src/newsapps/newsapps/na_media/ s3://%(s3_bucket)s/%(project_name)s/%(newsapps_media_prefix)s/' % env)
-    
-"""
-Commands - deployment
-"""
+@roles('web')
 def deploy():
-    """
-    Deploy the latest version of the site to the server and restart Apache2.
-    
-    Does not perform the functions of load_new_data().
-    """
-    require('settings', provided_by=[production, staging])
-    require('branch', provided_by=[stable, master, branch])
-    
-    with settings(warn_only=True):
-        maintenance_up()
+    with cd('~/newsblur'):
+        run('git pull')
+        run('kill -HUP `cat logs/gunicorn.pid`')
+        run('curl -s http://www.newsblur.com > /dev/null')
+        run('curl -s http://www.newsblur.com/api/add_site_load_script/ABCDEF > /dev/null')
+        compress_media()
+
+@roles('web')
+def deploy_full():
+    with cd('~/newsblur'):
+        run('git pull')
+        run('./manage.py migrate')
+        run('sudo supervisorctl restart gunicorn')
+        run('curl -s http://www.newsblur.com > /dev/null')
+        compress_media()
+
+@roles('web')
+def staging():
+    with cd('~/staging'):
+        run('git pull')
+        run('kill -HUP `cat logs/gunicorn.pid`')
+        run('curl -s http://dev.newsblur.com > /dev/null')
+        compress_media()
+
+@roles('web')
+def staging_full():
+    with cd('~/staging'):
+        run('git pull')
+        run('./manage.py migrate')
+        run('kill -HUP `cat logs/gunicorn.pid`')
+        run('curl -s http://dev.newsblur.com > /dev/null')
+        compress_media()
+
+@roles('task')
+def celery():
+    with cd('~/newsblur'):
+        run('git pull')
+        run('sudo supervisorctl stop celery')
+        with settings(warn_only=True):
+            run('./utils/kill_celery.sh')
+        run('sudo supervisorctl start celery')
+        run('tail logs/newsblur.log')
+
+@roles('task')
+def force_celery():
+    with cd('~/newsblur'):
+        run('git pull')
+        run('ps aux | grep celeryd | egrep -v grep | awk \'{print $2}\' | sudo xargs kill -9')
+        # run('sudo supervisorctl start celery && tail logs/newsblur.log')
+
+def compress_media():
+    with cd('media/js'):
+        run('rm -f *.gz')
+        run('for js in *-compressed-*.js; do gzip -9 $js -c > $js.gz; done;')
+    with cd('media/css'):
+        run('rm -f *.gz')
+        run('for css in *-compressed-*.css; do gzip -9 $css -c > $css.gz; done;')
         
-    checkout_latest()
-    gzip_assets()
-    deploy_to_s3()
-    refresh_widgets()
-    maintenance_down()
-    
-def maintenance_up():
-    """
-    Install the Apache maintenance configuration.
-    """
-    sudo('cp %(repo_path)s/%(project_name)s/configs/%(settings)s/%(project_name)s_maintenance %(apache_config_path)s' % env)
-    reboot()
+# ===========
+# = Backups =
+# ===========
 
-def gzip_assets():
-    """
-    GZips every file in the assets directory and places the new file
-    in the gzip directory with the same filename.
-    """
-    run('cd %(repo_path)s; python gzip_assets.py' % env)
+@roles('app')
+def backup_mongo():
+    with cd('~/newsblur/utils/backups'):
+        run('./mongo_backup.sh')
 
-def deploy_to_s3():
-    """
-    Deploy the latest project site media to S3.
-    """
-    env.gzip_path = '%(path)s/repository/%(project_name)s/gzip/assets/' % env
-    run(('s3cmd -P --add-header=Content-encoding:gzip --guess-mime-type --rexclude-from=%(path)s/repository/s3exclude sync %(gzip_path)s s3://%(s3_bucket)s/%(project_name)s/%(site_media_prefix)s/') % env)
-       
-def refresh_widgets():
-    """
-    Redeploy the widgets to S3.
-    """
-    run('source %(env_path)s/bin/activate; cd %(repo_path)s; ./manage refreshwidgets' % env)
+@roles('db')
+def backup_postgresql():
+    with cd('~/newsblur/utils/backups'):
+        run('./postgresql_backup.sh')
 
-def reboot(): 
-    """
-    Restart the Apache2 server.
-    """
-    sudo('/mnt/apps/bin/restart-all-apache.sh')
-    
-def maintenance_down():
-    """
-    Reinstall the normal site configuration.
-    """
-    install_apache_conf()
-    reboot()
-    
-"""
-Commands - rollback
-"""
-def rollback(commit_id):
-    """
-    Rolls back to specified git commit hash or tag.
-    
-    There is NO guarantee we have committed a valid dataset for an arbitrary
-    commit hash.
-    """
-    require('settings', provided_by=[production, staging])
-    require('branch', provided_by=[stable, master, branch])
-    
-    maintenance_up()
-    checkout_latest()
-    git_reset(commit_id)
-    gzip_assets()
-    deploy_to_s3()
-    refresh_widgets()
-    maintenance_down()
-    
-def git_reset(commit_id):
-    """
-    Reset the git repository to an arbitrary commit hash or tag.
-    """
-    env.commit_id = commit_id
-    run("cd %(repo_path)s; git reset --hard %(commit_id)s" % env)
+# =============
+# = Bootstrap =
+# =============
 
-"""
-Commands - data
-"""
-def load_new_data():
-    """
-    Erase the current database and load new data from the SQL dump file.
-    """
-    require('settings', provided_by=[production, staging])
+def setup_common():
+    setup_installs()
+    setup_user()
+    setup_repo()
+    setup_local_files()
+    setup_libxml()
+    setup_python()
+    setup_supervisor()
+    setup_hosts()
+    config_pgbouncer()
+    setup_mongoengine()
+    setup_forked_mongoengine()
+    setup_pymongo_repo()
+    setup_logrotate()
+    setup_sudoers()
+    setup_nginx()
+    configure_nginx()
+
+def setup_app():
+    setup_common()
+    setup_app_motd()
+    setup_gunicorn()
+    update_gunicorn()
+
+def setup_db():
+    setup_common()
+    setup_db_firewall()
+    setup_db_motd()
+    setup_rabbitmq()
+    setup_postgres()
+    setup_mongo()
+
+def setup_task():
+    setup_common()
+    setup_task_motd()
+    enable_celery_supervisor()
+    setup_gunicorn(supervisor=False)
+    update_gunicorn()
+    config_monit()
+
+# ==================
+# = Setup - Common =
+# ==================
     
-    maintenance_up()
-    pgpool_down()
-    destroy_database()
-    create_database()
-    load_data()
-    pgpool_up()
-    maintenance_down()
+def setup_installs():
+    sudo('apt-get -y update')
+    sudo('apt-get -y upgrade')
+    sudo('apt-get -y install build-essential gcc scons libreadline-dev sysstat iotop git zsh python-dev locate python-software-properties libpcre3-dev libssl-dev make pgbouncer python-psycopg2 libmemcache0 memcached python-memcache libyaml-0-2 python-yaml python-numpy python-scipy python-imaging munin munin-node munin-plugins-extra curl ntp monit')
+    sudo('add-apt-repository ppa:pitti/postgresql')
+    sudo('apt-get -y update')
+    sudo('apt-get -y install postgresql-client-9.0')
+    sudo('mkdir -p /var/run/postgresql')
+    sudo('chown postgres.postgres /var/run/postgresql')
+    put('config/munin.conf', '/etc/munin/munin.conf', use_sudo=True)
+    run('git clone git://github.com/robbyrussell/oh-my-zsh.git ~/.oh-my-zsh', warn_only=True)
+    run('curl -O http://peak.telecommunity.com/dist/ez_setup.py')
+    sudo('python ez_setup.py -U setuptools && rm ez_setup.py')
+    sudo('chsh sclay -s /bin/zsh')
     
-def create_database():
-    """
-    Creates the user and database for this project.
-    """
-    run('echo "CREATE USER %(project_name)s WITH PASSWORD \'%(database_password)s\';" | psql postgres' % env)
-    run('createdb -O %(project_name)s %(project_name)s -T template_postgis' % env)
+def setup_user():
+    # run('useradd -c "NewsBlur" -m conesus -s /bin/zsh')
+    # run('openssl rand -base64 8 | tee -a ~conesus/.password | passwd -stdin conesus')
+    run('mkdir -p ~/.ssh && chmod 700 ~/.ssh')
+    run('rm -fr ~/.ssh/id_dsa*')
+    run('ssh-keygen -t dsa -f ~/.ssh/id_dsa -N ""')
+    run('touch ~/.ssh/authorized_keys')
+    put("~/.ssh/id_dsa.pub", "authorized_keys")
+    run('mv authorized_keys ~/.ssh/')
     
-def destroy_database():
-    """
-    Destroys the user and database for this project.
+def add_machine_to_ssh():
+    put("~/.ssh/id_dsa.pub", "local_keys")
+    run("echo `cat local_keys` >> .ssh/authorized_keys")
     
-    Will not cause the fab to fail if they do not exist.
-    """
-    with settings(warn_only=True):
-        run('dropdb %(project_name)s' % env)
-        run('dropuser %(project_name)s' % env)
+def setup_repo():
+    run('mkdir -p ~/code')
+    run('git clone https://github.com/samuelclay/NewsBlur.git newsblur')
+    with cd('~/newsblur'):
+        run('cp local_settings.py.template local_settings.py')
+        run('mkdir -p logs')
+        run('touch logs/newsblur.log')
+
+def setup_local_files():
+    put("config/toprc", "./.toprc")
+    put("config/zshrc", "./.zshrc")
+    put('config/gitconfig.txt', './.gitconfig')
+    put('config/ssh.conf', './.ssh/config')
+
+def setup_libxml():
+    sudo('apt-get -y install libxml2-dev libxslt1-dev python-lxml')
+
+def setup_libxml_code():
+    with cd('~/code'):
+        run('git clone git://git.gnome.org/libxml2')
+        run('git clone git://git.gnome.org/libxslt')
+    
+    with cd('~/code/libxml2'):
+        run('./configure && make && sudo make install')
         
-def load_data():
-    """
-    Loads data from the repository into PostgreSQL.
-    """
-    run('psql -q %(project_name)s < %(path)s/repository/data/psql/dump.sql' % env)
-    run('psql -q %(project_name)s < %(path)s/repository/data/psql/finish_init.sql' % env)
+    with cd('~/code/libxslt'):
+        run('./configure && make && sudo make install')
+        
+def setup_python():
+    sudo('easy_install pip')
+    sudo('easy_install fabric django celery django-celery django-compress South django-devserver django-extensions guppy psycopg2 pymongo BeautifulSoup pyyaml nltk==0.9.9 lxml oauth2 pytz boto')
+    sudo('su -c \'echo "import sys; sys.setdefaultencoding(\\\\"utf-8\\\\")" > /usr/lib/python2.6/sitecustomize.py\'')
+    put('config/pystartup.py', '.pystartup')
     
-def pgpool_down():
-    """
-    Stop pgpool so that it won't prevent the database from being rebuilt.
-    """
-    sudo('/etc/init.d/pgpool stop')
+def setup_supervisor():
+    sudo('apt-get -y install supervisor')
     
-def pgpool_up():
-    """
-    Start pgpool.
-    """
-    sudo('/etc/init.d/pgpool start')
+def setup_hosts():
+    put('config/hosts', '/etc/hosts', use_sudo=True)
 
-"""
-Commands - miscellaneous
-"""
+def config_pgbouncer():
+    put('config/pgbouncer.conf', '/etc/pgbouncer/pgbouncer.ini', use_sudo=True)
+    put('config/pgbouncer_userlist.txt', '/etc/pgbouncer/userlist.txt', use_sudo=True)
+    sudo('mkdir -p /var/run/postgresql')
+    sudo('chown postgres.postgres /var/run/postgresql')
+    sudo('echo "START=1" > /etc/default/pgbouncer')
     
-def clear_cache():
-    """
-    Restart memcache, wiping the current cache.
-    """
-    sudo('/mnt/apps/bin/restart-memcache.sh')
+def config_monit():
+    # sudo('apt-get install -y monit')
+    put('config/monit.conf', '/etc/monit/conf.d/celery.conf', use_sudo=True)
+    sudo('echo "startup=1" > /etc/default/monit')
+    sudo('/etc/init.d/monit restart')
     
-def echo_host():
-    """
-    Echo the current host to the command line.
-    """
-    run('echo %(settings)s; echo %(hosts)s' % env)
+def setup_mongoengine():
+    with cd('~/code'):
+        run('git clone https://github.com/hmarr/mongoengine.git')
+        sudo('ln -s ~/code/mongoengine/mongoengine /usr/local/lib/python2.6/dist-packages/mongoengine')
+        
+def setup_pymongo_repo():
+    with cd('~/code'):
+        run('git clone git://github.com/mongodb/mongo-python-driver.git pymongo')
+    with cd('~/code/pymongo'):
+        sudo('python setup.py install')
+        
+def setup_forked_mongoengine():
+    with cd('~/code/mongoengine'):
+        run('git remote add github http://github.com/samuelclay/mongoengine')
+        run('git checkout dev')
+        run('git pull github dev')
 
-"""
-Deaths, destroyers of worlds
-"""
-def shiva_the_destroyer():
-    """
-    Remove all directories, databases, etc. associated with the application.
-    """
-    with settings(warn_only=True):
-        run('rm -Rf %(path)s' % env)
-        run('rm -Rf %(log_path)s' % env)
-        run('dropdb %(project_name)s' % env)
-        run('dropuser %(project_name)s' % env)
-        sudo('rm %(apache_config_path)s' % env)
-        reboot()
-        run('s3cmd del --recursive s3://%(s3_bucket)s/%(project_name)s' % env)
+def switch_forked_mongoengine():
+    with cd('~/code/mongoengine'):
+        run('git co dev')
+        run('git pull github dev --force')
+        # run('git checkout .')
+        # run('git checkout master')
+        # run('get branch -D dev')
+        # run('git checkout -b dev origin/dev')
+        
+def setup_logrotate():
+    put('config/logrotate.conf', '/etc/logrotate.d/newsblur', use_sudo=True)
+    
+def setup_sudoers():
+    sudo('su - root -c "echo \\\\"sclay ALL=(ALL) NOPASSWD: ALL\\\\" >> /etc/sudoers"')
 
-"""
-Utility functions (not to be called directly)
-"""
-def _execute_psql(query):
-    """
-    Executes a PostgreSQL command using the command line interface.
-    """
-    env.query = query
-    run(('cd %(path)s/repository; psql -q %(project_name)s -c "%(query)s"') % env)
+def setup_nginx():
+    with cd('~/code'):
+        sudo("groupadd nginx")
+        sudo("useradd -g nginx -d /var/www/htdocs -s /bin/false nginx")
+        run('wget http://sysoev.ru/nginx/nginx-0.9.5.tar.gz')
+        run('tar -xzf nginx-0.9.5.tar.gz')
+        run('rm nginx-0.9.5.tar.gz')
+        with cd('nginx-0.9.5'):
+            run('./configure --with-http_ssl_module --with-http_stub_status_module --with-http_gzip_static_module')
+            run('make')
+            sudo('make install')
+            
+def configure_nginx():
+    put("config/nginx.conf", "/usr/local/nginx/conf/nginx.conf", use_sudo=True)
+    sudo("mkdir -p /usr/local/nginx/conf/sites-enabled")
+    sudo("mkdir -p /var/log/nginx")
+    put("config/newsblur.conf", "/usr/local/nginx/conf/sites-enabled/newsblur.conf", use_sudo=True)
+    put("config/nginx-init", "/etc/init.d/nginx", use_sudo=True)
+    sudo("chmod 0755 /etc/init.d/nginx")
+    sudo("/usr/sbin/update-rc.d -f nginx defaults")
+    sudo("/etc/init.d/nginx restart")
+    
+# ===============
+# = Setup - App =
+# ===============
+
+def setup_app_motd():
+    put('config/motd_app.txt', '/etc/motd.tail', use_sudo=True)
+
+def setup_gunicorn(supervisor=True):
+    if supervisor:
+        put('config/supervisor_gunicorn.conf', '/etc/supervisor/conf.d/gunicorn.conf', use_sudo=True)
+    with cd('~/code'):
+        sudo('rm -fr gunicorn')
+        run('git clone git://github.com/benoitc/gunicorn.git')
+
+def update_gunicorn():
+    with cd('~/code/gunicorn'):
+        run('git pull')
+        sudo('python setup.py develop')
+
+@roles('web')
+def setup_staging():
+    run('git clone https://github.com/samuelclay/NewsBlur.git staging')
+    with cd('~/staging'):
+        run('cp ../newsblur/local_settings.py local_settings.py')
+        run('mkdir -p logs')
+        run('touch logs/newsblur.log')
+    
+# ==============
+# = Setup - DB =
+# ==============    
+
+def setup_db_firewall():
+    sudo('ufw default deny')
+    sudo('ufw allow ssh')   # SSH
+    sudo('ufw allow 5432')  # PostgreSQL
+    sudo('ufw allow 27017') # MongoDB
+    sudo('ufw allow 5672')  # RabbitMQ
+    sudo('ufw enable')
+    
+def setup_db_motd():
+    put('config/motd_db.txt', '/etc/motd.tail', use_sudo=True)
+    
+def setup_rabbitmq():
+    sudo('echo "deb http://www.rabbitmq.com/debian/ testing main" >> /etc/apt/sources.list')
+    run('wget http://www.rabbitmq.com/rabbitmq-signing-key-public.asc')
+    sudo('apt-key add rabbitmq-signing-key-public.asc')
+    run('rm rabbitmq-signing-key-public.asc')
+    sudo('apt-get update')
+    sudo('apt-get install -y rabbitmq-server')
+    sudo('rabbitmqctl add_user newsblur newsblur')
+    sudo('rabbitmqctl add_vhost newsblurvhost')
+    sudo('rabbitmqctl set_permissions -p newsblurvhost newsblur ".*" ".*" ".*"')
+
+def setup_postgres():
+    sudo('apt-get -y install postgresql-9.0 postgresql-client-9.0 postgresql-contrib-9.0 libpq-dev')
+
+def setup_mongo():
+    sudo('apt-key adv --keyserver keyserver.ubuntu.com --recv 7F0CEB10')
+    sudo('echo "deb http://downloads.mongodb.org/distros/ubuntu 10.10 10gen" >> /etc/apt/sources.list.d/10gen.list')
+    sudo('apt-get update')
+    sudo('apt-get -y install mongodb')
+    
+# ================
+# = Setup - Task =
+# ================
+
+def setup_task_motd():
+    put('config/motd_task.txt', '/etc/motd.tail', use_sudo=True)
+    
+def enable_celery_supervisor():
+    put('config/supervisor_celeryd.conf', '/etc/supervisor/conf.d/celeryd.conf', use_sudo=True)
+    
+# ======
+# = S3 =
+# ======
+
+ACCESS_KEY  = django_settings.S3_ACCESS_KEY
+SECRET      = django_settings.S3_SECRET
+BUCKET_NAME = django_settings.S3_BACKUP_BUCKET  # Note that you need to create this bucket first
+
+def save_file_in_s3(filename):
+    conn   = S3Connection(ACCESS_KEY, SECRET)
+    bucket = conn.get_bucket(BUCKET_NAME)
+    k      = Key(bucket)
+    k.key  = filename
+
+    k.set_contents_from_filename(filename)
+
+def get_file_from_s3(filename):
+    conn   = S3Connection(ACCESS_KEY, SECRET)
+    bucket = conn.get_bucket(BUCKET_NAME)
+    k      = Key(bucket)
+    k.key  = filename
+
+    k.get_contents_to_filename(filename)
+
+def list_backup_in_s3():
+    conn   = S3Connection(ACCESS_KEY, SECRET)
+    bucket = conn.get_bucket(BUCKET_NAME)
+
+    for i, key in enumerate(bucket.get_all_keys()):
+        print "[%s] %s" % (i, key.name)
+
+def delete_all_backups():
+    #FIXME: validate filename exists
+    conn   = S3Connection(ACCESS_KEY, SECRET)
+    bucket = conn.get_bucket(BUCKET_NAME)
+
+    for i, key in enumerate(bucket.get_all_keys()):
+        print "deleting %s" % (key.name)
+        key.delete()

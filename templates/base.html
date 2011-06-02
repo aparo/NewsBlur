@@ -9,29 +9,47 @@
   <script type="text/javascript" charset="utf-8">
     var NEWSBLUR = {};
     NEWSBLUR.Globals = {
-      'is_authenticated': {{ user.is_authenticated|yesno:"true,false" }},
-      'is_anonymous': {{ user.is_anonymous|yesno:"true,false" }},
-      'is_premium': {{ user.profile.is_premium|yesno:"true,false" }},
-      'username': "{{ user.username|safe }}",
-      'google_favicon_url': 'http://www.google.com/s2/favicons?domain_url=',
-      'MEDIA_URL': "{{ MEDIA_URL }}"
+      'is_authenticated'        : {{ user.is_authenticated|yesno:"true,false" }},
+      'is_anonymous'            : {{ user.is_anonymous|yesno:"true,false" }},
+      'is_premium'              : {{ user.profile.is_premium|yesno:"true,false" }},
+      'secret_token'            : "{{ user.profile.secret_token }}",
+      'username'                : "{{ user.username|safe }}",
+      'email'                   : "{{ user.email|safe }}",
+      'google_favicon_url'      : 'http://www.google.com/s2/favicons?domain_url=',
+      'MEDIA_URL'               : "{{ MEDIA_URL }}"
     };
     NEWSBLUR.Flags = {
       'start_import_from_google_reader': {{ start_import_from_google_reader|yesno:"true,false" }}
     };
     NEWSBLUR.Preferences = {
-      'unread_view': 0,
-      'lock_mouse_indicator': 0,
-      'feed_pane_size': 240,
-      'story_titles_pane_size': 168,
-      'new_window': 0,
-      'default_view': 'original',
-      'view_settings': {},
-      'collapsed_folders': [],
-      'timezone': "{{ user_profile.timezone }}"
+      'unread_view'             : 0,
+      'lock_mouse_indicator'    : 0,
+      'feed_pane_size'          : {{ user_profile.feed_pane_size }},
+      'tutorial_finished'       : {{ user_profile.tutorial_finished|yesno:"true,false" }},
+      'story_titles_pane_size'  : 168,
+      'new_window'              : 1,
+      'default_view'            : 'page',
+      'hide_read_feeds'         : 0,
+      'show_tooltips'           : 1,
+      'feed_order'              : 'ALPHABETICAL',
+      'hide_story_changes'      : 1,
+      'feed_view_single_story'  : 0,
+      'view_settings'           : {},
+      'collapsed_folders'       : [],
+      'story_styling'           : 'sans-serif',
+      'timezone'                : "{{ user_profile.timezone }}",
+      'story_share_twitter'     : true,
+      'story_share_facebook'    : true,
+      'story_share_readitlater' : false,
+      'story_share_instapaper'  : true,
+      'story_share_readability' : false,
+      'story_share_email'       : true
     };
     NEWSBLUR.URLs = {
-      'google-reader-authorize': "{% url google-reader-authorize %}"
+      'google-reader-authorize' : "{% url google-reader-authorize %}",
+      'opml-upload'             : "{% url opml-upload %}",
+      'opml-export'             : "{% url opml-export %}",
+      'domain'                  : "{% current_domain %}"
     };
   </script>
   
@@ -43,27 +61,69 @@
   {% endblock extra_head_js %}
   
   <script type="text/javascript" charset="utf-8">
-    $.extend(NEWSBLUR.Preferences, {{ user_profile.preferences|safe }});
-    $.extend(NEWSBLUR.Preferences['view_settings'], {{ user_profile.view_settings|safe }});
-    $.extend(NEWSBLUR.Preferences['collapsed_folders'], {{ user_profile.collapsed_folders|safe }});
+    $.extend(NEWSBLUR.Preferences, {% if user_profile.preferences %}{{ user_profile.preferences|safe }}{% else %}{}{% endif %});
+    $.extend(NEWSBLUR.Preferences['view_settings'], {% if user_profile.view_settings %}{{ user_profile.view_settings|safe }}{% else %}{}{% endif %});
+    $.extend(NEWSBLUR.Preferences['collapsed_folders'], {% if user_profile.collapsed_folders %}{{ user_profile.collapsed_folders|safe }}{% else %}[]{% endif %});
   </script>
     
+  {% if not debug %}
+  <script type="text/javascript">
+
+    var _gaq = _gaq || [];
+    _gaq.push(['_setAccount', 'UA-8371683-2']);
+    _gaq.push(['_trackPageview']);
+
+    (function() {
+      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+    })();
+
+  </script>
+  {% endif %}
 </head>
 
-<body>
+<body class="{% block bodyclass %}{% endblock %}">
+
   {% block header %}{% endblock %}
+  
+  
+  <div class="NB-splash-info NB-splash-top">
+    <a href="{% url index %}"><img class="NB-splash-title" src="{{ MEDIA_URL }}/img/logo_newsblur_blur.png" /></a>
+    <ul class="NB-splash-links">
+      <li class="NB-splash-link NB-first NB-splash-link-twitter"><a href="http://twitter.com/samuelclay">@samuelclay</a></li>
+      <li class="NB-splash-link NB-first NB-splash-link-twitter"><a href="http://twitter.com/newsblur">@newsblur</a></li>
+      <li class="NB-splash-link NB-splash-link-blog"><a href="http://blog.newsblur.com">The Blog</a></li>
+    </ul>
+  </div>
+      
+  <div class="NB-splash-info NB-splash-bottom">
+    <a href="{% url index %}"><img class="NB-splash-title" src="{{ MEDIA_URL }}/img/logo_newsblur.png" /></a>
+    <ul class="NB-splash-links">
+      <li class="NB-splash-link"><a href="{% url faq %}">FAQ</a></li>
+      <li class="NB-splash-link"><a href="{% url about %}">About</a></li>
+      <li class="NB-splash-link NB-first NB-splash-link-github"><a href="http://github.com/samuelclay">GitHub</a></li>
+    </ul>
+    <ul class="NB-splash-links NB-splash-links-2">
+      <li class="NB-splash-link"><a href="{% url api %}">API</a></li>
+      <li class="NB-splash-link"><a href="{% url press %}">Press</a></li>
+      <li class="NB-splash-link NB-splash-link-getsatisfaction"><a href="https://getsatisfaction.com/newsblur">Feedback</a></li>
+    </ul>
+  </div>
+  
   {% block content %}{% endblock %}
 
-  {% if not debug %}
-    <script type="text/javascript">
-    var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
-    document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
-    </script>
-    <script type="text/javascript">
-    try {
-    var pageTracker = _gat._getTracker("UA-8371683-2");
-    pageTracker._trackPageview();
-    } catch(err) {}</script>
-  {% endif %}
+  <!-- Start Quantcast tag -->
+  <script type="text/javascript">
+  _qoptions={
+  qacct:"p-0dE65XaLY51Og"
+  };
+  </script>
+  <script type="text/javascript" src="http://edge.quantserve.com/quant.js"></script>
+  <noscript>
+  <img src="http://pixel.quantserve.com/pixel/p-0dE65XaLY51Og.gif" style="display: none;" border="0" height="1" width="1" alt="Quantcast"/>
+  </noscript>
+  <!-- End Quantcast tag -->
+
 </body>
 </html>

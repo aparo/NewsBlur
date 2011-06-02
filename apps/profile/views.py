@@ -9,27 +9,45 @@ from django.core.mail import mail_admins
 from utils import json_functions as json
 from paypal.standard.forms import PayPalPaymentsForm
 from utils.user_functions import ajax_login_required
-from apps.profile.models import Profile
+from apps.profile.models import Profile, change_password
 from apps.reader.models import UserSubscription
 
-@login_required
+SINGLE_FIELD_PREFS = ('timezone','feed_pane_size','tutorial_finished')
+SPECIAL_PREFERENCES = ('old_password', 'new_password',)
+
+@ajax_login_required
 @require_POST
 @json.json_view
 def set_preference(request):
     code = 1
+    message = ''
     new_preferences = request.POST
     
     preferences = json.decode(request.user.profile.preferences)
     for preference_name, preference_value in new_preferences.items():
-        preferences[preference_name] = preference_value
+        if preference_value in ['true','false']: preference_value = True if preference_value == 'true' else False
+        if preference_name in SINGLE_FIELD_PREFS:
+            setattr(request.user.profile, preference_name, preference_value)
+        elif preference_name in SPECIAL_PREFERENCES:
+            if (preference_name == 'old_password' and
+                (new_preferences['old_password'] or
+                 new_preferences['new_password'])):
+                code = change_password(request.user, new_preferences['old_password'],
+                                       new_preferences['new_password'])
+                if code == -1:
+                    message = "Your old password is incorrect."
+        else:
+            if preference_value in ["true", "false"]:
+                preference_value = True if preference_value == "true" else False
+            preferences[preference_name] = preference_value
         
     request.user.profile.preferences = json.encode(preferences)
     request.user.profile.save()
     
-    response = dict(code=code)
+    response = dict(code=code, message=message, new_preferences=new_preferences)
     return response
 
-@login_required
+@ajax_login_required
 @json.json_view
 def get_preference(request):
     code = 1
@@ -39,7 +57,7 @@ def get_preference(request):
     response = dict(code=code, payload=preferences.get(preference_name))
     return response
     
-@login_required
+@ajax_login_required
 @require_POST
 @json.json_view
 def set_view_setting(request):
@@ -55,7 +73,7 @@ def set_view_setting(request):
     response = dict(code=code)
     return response
 
-@login_required
+@ajax_login_required
 @json.json_view
 def get_view_setting(request):
     code = 1
@@ -66,7 +84,7 @@ def get_view_setting(request):
     return response
     
 
-@login_required
+@ajax_login_required
 @require_POST
 @json.json_view
 def set_collapsed_folders(request):
@@ -128,8 +146,8 @@ def profile_is_premium(request):
     activated_subs = subs.filter(active=True).count()
     
     if retries > 30:
-        subject = "Premium activation failed: %s (%s)" % (request.user, request.user.pk)
-        message = "Check PayPalIPN"
+        subject = "Premium activation failed: %s (%s/%s)" % (request.user, activated_subs, total_subs)
+        message = """User: %s (%s) -- Email: %s""" % (request.user.username, request.user.pk, request.user.email)
         mail_admins(subject, message, fail_silently=True)
         code = -1
         request.user.profile.is_premium = True

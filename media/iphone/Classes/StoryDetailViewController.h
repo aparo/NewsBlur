@@ -11,13 +11,26 @@
 @class NewsBlurAppDelegate;
 
 @interface StoryDetailViewController : UIViewController 
-<UIWebViewDelegate> {
+<UIScrollViewDelegate> {
     NewsBlurAppDelegate *appDelegate;
 
+    UIScrollView *scrollView;
     UIWebView *webView;
+    UIToolbar *toolbar;
+    UIBarButtonItem *buttonPrevious;
+    UIBarButtonItem *buttonNext;
 }
 
 @property (nonatomic, retain) IBOutlet UIWebView *webView;
-@property (nonatomic, retain) NewsBlurAppDelegate *appDelegate;
+@property (nonatomic, retain) IBOutlet UIScrollView *scrollView;
+@property (nonatomic, retain) IBOutlet UIToolbar *toolbar;
+@property (nonatomic, retain) IBOutlet UIBarButtonItem *buttonPrevious;
+@property (nonatomic, retain) IBOutlet UIBarButtonItem *buttonNext;
+@property (nonatomic, retain) IBOutlet NewsBlurAppDelegate *appDelegate;
+
+- (void)markStoryAsRead;
+- (void)showStory;
+- (void)showOriginalSubview:(id)sender;
+- (void)resizeWebView;
 
 @end

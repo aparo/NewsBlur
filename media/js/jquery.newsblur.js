@@ -129,7 +129,42 @@ NEWSBLUR.log = function(msg) {
     });
     
     $.extend({
-
+      
+        // Color format: {r: 1, g: .5, b: 0}
+        textColor: function(background_color) {
+            var contrast = function (color1, color2) {
+                var lum1 = luminosity(color1);
+                var lum2 = luminosity(color2);
+                if(lum1 > lum2)
+                return (lum1 + 0.05) / (lum2 + 0.05);
+                return (lum2 + 0.05) / (lum1 + 0.05);
+            };
+            
+            var luminosity = function (color) {
+                var r = color.r, g = color.g, b = color.b;
+                var red = (r <= 0.03928) ? r/12.92 : Math.pow(((r + 0.055)/1.055), 2.4);
+                var green = (g <= 0.03928) ? g/12.92 : Math.pow(((g + 0.055)/1.055), 2.4);
+                var blue = (b <= 0.03928) ? b/12.92 : Math.pow(((b + 0.055)/1.055), 2.4);
+                
+                return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+            };
+            
+            if (contrast(background_color, {r: 1, g: 1, b: 1}) > 
+                contrast(background_color, {r: .5, g: .5, b: .5})) {
+                return 'white';
+            } else {
+                return 'black';
+            }
+        },
+        
+        favicon: function(feed_favicon, empty_on_missing) {
+          
+            if (feed_favicon && feed_favicon.indexOf('data:image/png;base64,') != -1) return feed_favicon;
+            else if (feed_favicon) return 'data:image/png;base64,' + feed_favicon;
+            else if (empty_on_missing) return 'data:image/png;base64,R0lGODlhAQABAIAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+            return NEWSBLUR.Globals.MEDIA_URL + '/img/icons/silk/world.png';
+        },
+        
         deepCopy: function(obj) {
             var type = $.typeOf(obj);
             switch (type) {
@@ -180,8 +215,8 @@ NEWSBLUR.log = function(msg) {
             var $p = null;
             var fails = false;
             if(opts.childOf){
-                $p = $t.parents(opts.childOf).eq(0);
-                if(!$p[0]){
+                $p = $t.closest(opts.childOf);
+                if(!$p.length){
                     fails = true;
                 }
             }
@@ -191,8 +226,8 @@ NEWSBLUR.log = function(msg) {
                     if(opts.cancelBubbling){
                         fails = true;
                     }else{
-                        $tp = $t.parents(ts).eq(0);
-                        if(!$tp[0]){
+                        $tp = $t.closest(ts);
+                        if(!$tp.length){
                             fails = true;
                         }else{
                             // we are going to assume dev
@@ -206,6 +241,7 @@ NEWSBLUR.log = function(msg) {
                 return false;
             }else{
                 if(callback && typeof callback == 'function'){
+                    // NEWSBLUR.log(['Target', e, opts.tagSelector, opts]);
                     callback($t, $p);
                 }
                 return true;
@@ -228,51 +264,51 @@ NEWSBLUR.log = function(msg) {
             // Second argument can be TextNode or Attributes
             // $.make('div', 'inner text') || $.make('div', { className: 'etc' })
             if (args[1]) {
-                if (typeof args[1] == 'string') {
+                if (typeof args[1] == 'string' || typeof args[1] == 'number') {
                     text = args[1];
                 } else if (typeof args[1] == 'object' && args[1].push) {
                     children = args[1];
                 } else {
                     props = args[1];
+                    if (props.className) {
+                      props['class'] = props.className;
+                      delete props.className;
+                    }
                 }
             }
             
             // Third argument can be TextNode or an array of additional $.make
             if (args[2]) {
-                if (typeof args[2] == 'string') {
+                if (typeof args[2] == 'string' || typeof args[2] == 'number') {
                     text = args[2];
                 } else if (typeof args[1] == 'object' && args[2].push) {
                     children = args[2];
                 }
             }
             
-            if (tagname == 'text' && text) {
-                return document.createTextNode(text);
-            } else {
-                $elem = $(document.createElement(tagname));
-                if (props) {
-                    for (var propname in props) {
-                        if (props.hasOwnProperty(propname)) {
-                            if ($elem.is(':input') && propname == 'value') {
-                                $elem.val(props[propname]);
-                            } else {
-                                $elem.attr(propname, props[propname]);
-                            }
+            $elem = $(document.createElement(tagname));
+            if (props) {
+                for (var propname in props) {
+                    if (props.hasOwnProperty(propname)) {
+                        if ($elem.is(':input') && propname == 'value') {
+                            $elem.val(props[propname]);
+                        } else {
+                            $elem.attr(propname, props[propname]);
                         }
                     }
                 }
-                if (children) {
-                    for (var i = 0; i < children.length; i++) {
-                        if (children[i]) {
-                            $elem.append(children[i]);
-                        }
-                    }
-                }
-                if (text) {
-                    $elem.html(text);
-                }
-                return $elem;
             }
+            if (children) {
+                for (var i = 0; i < children.length; i++) {
+                    if (children[i]) {
+                        $elem.append(children[i]);
+                    }
+                }
+            }
+            if (text) {
+                $elem.html(text);
+            }
+            return $elem;
         },
         
         rescope: function(func, thisArg){
@@ -296,6 +332,27 @@ NEWSBLUR.log = function(msg) {
                 }
             }
             return index;
+        },
+        
+        getQueryString: function (name) {           
+            function parseParams() {
+                var params = {},
+                    e,
+                    a = /\+/g,  // Regex for replacing addition symbol with a space
+                    r = /([^&=]+)=?([^&]*)/g,
+                    d = function (s) { return decodeURIComponent(s.replace(a, " ")); },
+                    q = window.location.search.substring(1);
+
+                while (e = r.exec(q))
+                    params[d(e[1])] = d(e[2]);
+
+                return params;
+            }
+
+            if (!this.queryStringParams)
+                this.queryStringParams = parseParams(); 
+
+            return this.queryStringParams[name];
         }
 
     });
